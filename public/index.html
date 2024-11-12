@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Co-viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #f8f9fa;
+            --border-radius: 8px;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: var(--primary-color);
+            margin: 0;
+        }
+
+        #controls {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .file-upload {
+            position: relative;
+            display: inline-block;
+        }
+
+        .file-upload-label {
+            background: var(--primary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.3s;
+        }
+
+        .file-upload-label:hover {
+            background: #357abd;
+        }
+
+        #pdfFile {
+            display: none;
+        }
+
+        .button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.3s;
+        }
+
+        .button:hover {
+            background: #357abd;
+        }
+
+        .button.secondary {
+            background: var(--secondary-color);
+            color: #333;
+        }
+
+        .button.secondary:hover {
+            background: #e2e6ea;
+        }
+
+        #roomInfo {
+            background: #e3f2fd;
+            padding: 8px 15px;
+            border-radius: var(--border-radius);
+            font-size: 14px;
+            color: var(--primary-color);
+        }
+
+        #viewerCount {
+            background: #e8f5e9;
+            padding: 8px 15px;
+            border-radius: var(--border-radius);
+            font-size: 14px;
+            color: #2e7d32;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .viewer-container {
+            background: white;
+            padding: 20px;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+        }
+
+        #pdfViewer {
+            width: 100%;
+            border: 1px solid #eee;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+        }
+
+        #navigation {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+        }
+
+        #pageInfo {
+            font-size: 14px;
+            color: #666;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            #controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .button, .file-upload-label {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-file-pdf"></i> PDF Co-viewer</h1>
+            <div id="viewerCount">
+                <i class="fas fa-users"></i>
+                <span>Viewers: 1</span>
+            </div>
+        </div>
+
+        <div id="controls">
+            <div class="file-upload">
+                <label for="pdfFile" class="file-upload-label">
+                    <i class="fas fa-upload"></i>
+                    Choose PDF File
+                </label>
+                <input type="file" id="pdfFile" accept=".pdf">
+            </div>
+            
+            <button id="shareBtn" class="button">
+                <i class="fas fa-share-alt"></i>
+                Share Room
+            </button>
+            
+            <div id="roomInfo">
+                <i class="fas fa-door-open"></i>
+                <span></span>
+            </div>
+        </div>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        
+        <div class="viewer-container">
+            <canvas id="pdfViewer"></canvas>
+        </div>
+        
+        <div id="navigation">
+            <button id="prevPage" class="button secondary">
+                <i class="fas fa-chevron-left"></i>
+                Previous
+            </button>
+            <span id="pageInfo">Page 1</span>
+            <button id="nextPage" class="button secondary">
+                Next
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // [Previous JavaScript code remains the same]
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js';
+
+        const socket = io();
+        
+        let pdfDoc = null;
+        let pageNum = 1;
+        let isAdmin = false;
+        let roomId = null;
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        roomId = urlParams.get('room') || generateRoomId();
+        isAdmin = !urlParams.get('room');
+        
+        socket.emit('joinRoom', { roomId, isAdmin });
+        
+        document.querySelector('#roomInfo span').textContent = `Room: ${roomId}`;
+        
+        document.getElementById('pdfFile').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    loadPDF(arrayBuffer);
+                } catch (error) {
+                    showStatus('Error loading PDF', 'error');
+                }
+            }
+        });
+        
+        document.getElementById('shareBtn').addEventListener('click', () => {
+            const url = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+            navigator.clipboard.writeText(url);
+            showStatus('Room link copied to clipboard!', 'success');
+        });
+        
+        document.getElementById('prevPage').addEventListener('click', () => {
+            if (pageNum > 1) {
+                pageNum--;
+                renderPage(pageNum);
+                if (isAdmin) {
+                    socket.emit('pageChange', { roomId, page: pageNum });
+                }
+            }
+        });
+        
+        document.getElementById('nextPage').addEventListener('click', () => {
+            if (pdfDoc && pageNum < pdfDoc.numPages) {
+                pageNum++;
+                renderPage(pageNum);
+                if (isAdmin) {
+                    socket.emit('pageChange', { roomId, page: pageNum });
+                }
+            }
+        });
+        
+        socket.on('pageSync', ({ page }) => {
+            if (!isAdmin && page !== pageNum) {
+                pageNum = page;
+                renderPage(pageNum);
+            }
+        });
+        
+        socket.on('viewerCount', ({ count }) => {
+            document.querySelector('#viewerCount span').textContent = `Viewers: ${count}`;
+        });
+        
+        async function loadPDF(pdfData) {
+            try {
+                pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
+                renderPage(pageNum);
+                showStatus('PDF loaded successfully', 'success');
+            } catch (error) {
+                showStatus('Error loading PDF', 'error');
+            }
+        }
+        
+        async function renderPage(num) {
+            if (!pdfDoc) return;
+            
+            try {
+                const page = await pdfDoc.getPage(num);
+                const canvas = document.getElementById('pdfViewer');
+                const ctx = canvas.getContext('2d');
+                
+                const viewport = page.getViewport({ scale: 1.5 });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                await page.render({
+                    canvasContext: ctx,
+                    viewport: viewport
+                }).promise;
+                
+                document.getElementById('pageInfo').textContent = 
+                    `Page ${num} of ${pdfDoc.numPages}`;
+            } catch (error) {
+                showStatus('Error rendering page', 'error');
+            }
+        }
+        
+        function generateRoomId() {
+            return Math.random().toString(36).substring(2, 8);
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
